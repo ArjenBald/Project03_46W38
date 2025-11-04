@@ -1,0 +1,31 @@
+# METADATA: DATA SOURCES AND DETAILS
+
+## 1. TURBINE DATA
+
+Power curves for two reference wind turbines (NREL 5 MW and NREL 15 MW) are provided in CSV files. These files are used to compute the time series of power output and Annual Energy Production (AEP).
+
+- **NREL 5 MW Reference Turbine**
+  - Hub Height: 90 m
+  - Source: https://github.com/NREL/turbine-models/blob/main/turbine_models/data/Offshore/NREL_Reference_5MW_126.csv
+
+- **NREL 15 MW Reference Turbine**
+  - Hub Height: 150 m
+  - Source: https://github.com/NREL/turbine-models/blob/main/turbine_models/data/Offshore/2020ATB_NREL_Reference_15MW_240.csv
+
+## 2. WIND DATA (REANALYSIS)
+
+The wind data is sourced from the **ERA5 reanalysis dataset**. Reanalysis combines model data with observations using data assimilation to produce a globally complete and consistent dataset. ERA5 provides hourly estimates for a large number of atmospheric, ocean-wave, and land-surface quantities (More details on ERA5 can be found in ECMWF documentation).
+
+### Data Files and Naming
+
+- The wind data is provided in multiple **NetCDF4 files (.nc files)** in the `inputs` folder.
+- **Naming Convention:** "XXXX-YYYY.nc", which indicates wind data from year XXXX to year YYYY.
+
+### Available Variables (m/s)
+
+The NetCDF4 files contain the following four data variables (all in metres per second [m/s]):
+
+1.  **100m u-component of wind [m/s]:** Eastward component of the wind at 100 metres above the surface.
+2.  **100m v-component of wind [m/s]:** Northward component of the wind at 100 metres above the surface.
+3.  **10m u-component of wind [m/s]:** Eastward component of the wind at 10 metres above the surface.
+4.  **10m v-component of wind [m/s]:** Northward component of the wind at 10 metres above the surface.
