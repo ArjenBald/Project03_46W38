@@ -2,7 +2,7 @@
 # ------------------------------------------------------------
 # Purpose:
 #   For a user-specified location INSIDE the 2×2 ERA5 box:
-#   (1) load a NetCDF chunk, (2) bilinearly interpolate u/v at 10 m and 100 m,
+#   (1) load multiple NetCDF files, (2) bilinearly interpolate u/v at 10 m and 100 m,
 #   (3) compute wind speed and wind direction time series at both heights,
 #   (4) save a single CSV with ws/wd for 10 m and 100 m.
 #   Direction is meteorological: degrees FROM which the wind blows [0..360).
@@ -13,9 +13,10 @@ import os
 import numpy as np
 import pandas as pd
 import xarray as xr
+from pathlib import Path
 
-# Absolute path to one sample NetCDF file
-NC_PATH = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data\2000-2002.nc"
+# Absolute path to the directory containing multiple ERA5 NetCDF files
+REANALYSIS_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data"
 
 # Output directory 
 OUTPUT_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\outputs\results"
@@ -35,8 +36,15 @@ def wind_dir(u: pd.Series, v: pd.Series) -> pd.Series:
     return pd.Series(wd_deg, index=u.index, name="wd_deg")
 
 def main():
-    # Open a single NetCDF file (ERA5 hourly reanalysis)
-    ds = xr.open_dataset(NC_PATH, engine="netcdf4", decode_timedelta=True)
+    # Open multiple NetCDF files (ERA5 hourly reanalysis, combined by coordinates)
+    
+    files = tuple(sorted(str(p) for p in Path(REANALYSIS_DIR).glob("*.nc")))
+    ds = xr.open_mfdataset(
+        files,
+        combine="by_coords",
+        decode_timedelta=True,
+        engine="netcdf4",
+    )
 
     # Bilinear interpolation to an arbitrary point inside the box (time preserved)
     u100 = ds["u100"].interp(latitude=LAT, longitude=LON)
@@ -65,14 +73,18 @@ def main():
     print(f"Rows: {len(df)} | ws100 mean={df['ws100_ms'].mean():.3f} m/s | ws10 mean={df['ws10_ms'].mean():.3f} m/s")
 
     # Save a single CSV with both heights
-    out_csv = os.path.join(OUTPUT_DIR, f"ws_wd_10m_100m_{LAT:.4f}_{LON:.4f}_2000-2002.csv")
-    df.to_csv(out_csv)
+    period = f"{df.index.min():%Y}-{df.index.max():%Y}"
+    out_csv = os.path.join(OUTPUT_DIR, f"ws_wd_10m_100m_{LAT:.4f}_{LON:.4f}_{period}.csv")
+    df.to_csv(out_csv, sep=';', index_label='time', encoding='utf-8-sig')
     print("Saved:", out_csv)
 
+    ds.close()
+
     # Note:
-    # This covers two minimal-spec items:
+    # This covers the following minimal-spec items:
     #  - compute wind speed and direction from u/v,
-    #  - compute ws/wd time series at 10 m and 100 m for a location inside the box (via interpolation).
+    #  - compute ws/wd time series at 10 m and 100 m for a location inside the box (via interpolation),
+    #  - load and combine multiple ERA5 NetCDF files into one continuous dataset.
 
 if __name__ == "__main__":
     main()
