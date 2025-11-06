@@ -8,7 +8,9 @@
 #   (4) allow user to specify start/end years for filtering,
 #   (5) optionally compute wind speed at a user-defined height z
 #       using the power law profile (v = v(z_r) * (z/z_r)^α),
-#   (6) save a single CSV with ws/wd at 10 m, 100 m, and optionally z m.
+#   (6) save a single CSV with ws/wd at 10 m, 100 m, and optionally z m,
+#   (7) fit Weibull distribution (k, A) for the selected height and
+#       export a compact CSV summary of the fit.
 #   Direction is meteorological: degrees FROM which the wind blows [0..360).
 # ------------------------------------------------------------
 
@@ -18,6 +20,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from pathlib import Path
+from scipy.stats import weibull_min
 
 # Absolute path to the directory containing multiple ERA5 NetCDF files
 REANALYSIS_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data"
@@ -102,6 +105,19 @@ def main():
     else:
         df = pd.concat([ws10, wd10, ws100, wd100], axis=1)
 
+    # --- Fit Weibull distribution for selected height ---
+    if ws_z is not None:
+        col = f"ws{int(z)}m_ms"
+        height_label = f"{int(z)}m"
+    else:
+        col = "ws100_ms"
+        height_label = "100m"
+
+    ws_for_fit = df[col].dropna()
+    k, loc, A = weibull_min.fit(ws_for_fit, floc=0.0)
+
+    print(f"\nWeibull fit for {height_label}: k={k:.3f}, A={A:.3f}")
+
     # Brief terminal summary
     print("\n=== Interpolated time series at 10 m and 100 m (inside-box point) ===")
     print(f"Period: {df.index.min()} .. {df.index.max()}")
@@ -127,6 +143,20 @@ def main():
     df.to_csv(out_csv, sep=';', index_label='time', encoding='utf-8-sig')
     print("Saved:", out_csv)
 
+    # --- Export Weibull fit summary ---
+    fit_summary = pd.DataFrame({
+    "height": [height_label],
+    "k_shape": [k],
+    "A_scale": [A],
+})
+
+    fit_csv = os.path.join(
+        OUTPUT_DIR,
+        f"weibull_fit_{height_label}_{LAT:.4f}_{LON:.4f}_{start_year}-{end_year}.csv"
+    )
+    fit_summary.to_csv(fit_csv, sep=';', index=False, encoding='utf-8-sig')
+    print("Saved Weibull summary:", fit_csv)
+
     ds.close()
 
 
@@ -137,7 +167,8 @@ def main():
     #  - load and combine multiple ERA5 NetCDF files into one continuous dataset,
     #  - apply user-specified start/end year filtering (inclusive),
     #  - compute wind speed at a user-specified height z using the power law profile,
-    #  - export a single hourly CSV (Excel-friendly separator/encoding, includes z-level in filename if provided).
+    #  - export a single hourly CSV (Excel-friendly separator/encoding, includes z-level in filename if provided),
+    #  - fit and export Weibull distribution parameters (k, A) for selected height.
 
 if __name__ == "__main__":
     main()
