@@ -10,7 +10,9 @@
 #       using the power law profile (v = v(z_r) * (z/z_r)^α),
 #   (6) save a single CSV with ws/wd at 10 m, 100 m, and optionally z m,
 #   (7) fit Weibull distribution (k, A) for the selected height and
-#       export a compact CSV summary of the fit.
+#       export a compact CSV summary of the fit,
+#   (8) plot wind speed distribution (histogram vs. fitted Weibull curve)
+#       for the selected location and height.
 #   Direction is meteorological: degrees FROM which the wind blows [0..360).
 # ------------------------------------------------------------
 
@@ -21,6 +23,7 @@ import pandas as pd
 import xarray as xr
 from pathlib import Path
 from scipy.stats import weibull_min
+import matplotlib.pyplot as plt
 
 # Absolute path to the directory containing multiple ERA5 NetCDF files
 REANALYSIS_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data"
@@ -118,6 +121,29 @@ def main():
 
     print(f"\nWeibull fit for {height_label}: k={k:.3f}, A={A:.3f}")
 
+    # --- Plot: wind speed histogram vs fitted Weibull ---
+    ws = ws_for_fit.to_numpy()
+    x_max = max(np.quantile(ws, 0.995), ws.max())
+    x = np.linspace(0, x_max, 400)
+    pdf = weibull_min.pdf(x, c=k, loc=0.0, scale=A)
+
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    ax.hist(ws, bins=50, density=True, alpha=0.6, color="gray", edgecolor="none")
+    ax.plot(x, pdf, "r-", linewidth=2)
+
+    ax.set_xlabel("Wind speed [m/s]")
+    ax.set_ylabel("Probability density [-]")
+    ax.set_title(f"Wind speed distribution @ {height_label} ({start_year}-{end_year})")
+
+    plot_name = (
+        f"ws_hist_vs_weibull_{height_label}_{LAT:.4f}_{LON:.4f}_{start_year}-{end_year}.png"
+    )
+    plot_path = os.path.join(OUTPUT_DIR, plot_name)
+    fig.savefig(plot_path, dpi=150)
+    plt.show()
+    plt.close(fig)
+    print("Saved wind speed distribution plot:", plot_path)
+
     # Brief terminal summary
     print("\n=== Interpolated time series at 10 m and 100 m (inside-box point) ===")
     print(f"Period: {df.index.min()} .. {df.index.max()}")
@@ -168,7 +194,8 @@ def main():
     #  - apply user-specified start/end year filtering (inclusive),
     #  - compute wind speed at a user-specified height z using the power law profile,
     #  - export a single hourly CSV (Excel-friendly separator/encoding, includes z-level in filename if provided),
-    #  - fit and export Weibull distribution parameters (k, A) for selected height.
+    #  - fit and export Weibull distribution parameters (k, A) for selected height,
+    #  - plot wind speed distribution (histogram vs. fitted Weibull curve) for the selected height and period.
 
 if __name__ == "__main__":
     main()
