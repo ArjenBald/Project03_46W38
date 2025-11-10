@@ -12,6 +12,8 @@
 #   (7) fit Weibull distribution (k, A) for the selected height and
 #       export a compact CSV summary of the fit,
 #   (8) plot wind speed distribution (histogram vs. fitted Weibull curve)
+#       for the selected location and height,
+#   (9) plot wind rose (polar histogram of wind directions)
 #       for the selected location and height.
 #   Direction is meteorological: degrees FROM which the wind blows [0..360).
 # ------------------------------------------------------------
@@ -28,7 +30,7 @@ import matplotlib.pyplot as plt
 # Absolute path to the directory containing multiple ERA5 NetCDF files
 REANALYSIS_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data"
 
-# Output directory 
+# Output directory
 OUTPUT_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\outputs\results"
 
 # Target site INSIDE the box (Horns Rev 1 approx: 55°31′47″N, 7°54′22″E ≈ 55.53, 7.91)
@@ -55,12 +57,7 @@ def main():
 
     # Open multiple NetCDF files (ERA5 hourly reanalysis, combined by coordinates)
     files = tuple(sorted(str(p) for p in Path(REANALYSIS_DIR).glob("*.nc")))
-    ds = xr.open_mfdataset(
-        files,
-        combine="by_coords",
-        decode_timedelta=True,
-        engine="netcdf4",
-    )
+    ds = xr.open_mfdataset(files, combine="by_coords", decode_timedelta=True, engine="netcdf4")
 
     # Apply year filter to time dimension
     ds = ds.sel(time=slice(f"{start_year}-01-01", f"{end_year}-12-31 23:00:00"))
@@ -144,6 +141,40 @@ def main():
     plt.close(fig)
     print("Saved wind speed distribution plot:", plot_path)
 
+    # --- Plot: wind rose (polar histogram of wind directions) ---
+    # Select wind direction series for the same height as the wind speed distribution:
+    if ws_z is not None:
+        wd_for_rose = wd100 if z_r == 100 else wd10
+    else:
+        wd_for_rose = wd100  # default wind rose for 100 m
+
+    # Direction bins: 16 sectors of 22.5° each
+    n_sectors = 16
+    edges_deg = np.linspace(0, 360, n_sectors + 1)
+    counts, _ = np.histogram(wd_for_rose, bins=edges_deg)
+    freqs = counts / counts.sum()
+
+    # Polar plot setup: 0° = North, increasing clockwise
+    theta_edges = np.deg2rad(edges_deg)
+    widths = np.diff(theta_edges)
+    theta_centers = theta_edges[:-1]
+
+    fig2, ax2 = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(6.2, 6.2))
+    ax2.set_theta_zero_location("N")
+    ax2.set_theta_direction(-1)
+    ax2.bar(theta_centers, freqs, width=widths, align="edge", color="gray", edgecolor="none", alpha=0.8)
+
+    ax2.set_title(f"Wind rose @ {height_label} ({start_year}-{end_year})")
+    rticks = ax2.get_yticks()
+    ax2.set_yticklabels([f"{t*100:.0f}%" for t in rticks])
+
+    rose_name = f"wind_rose_{height_label}_{LAT:.4f}_{LON:.4f}_{start_year}-{end_year}.png"
+    rose_path = os.path.join(OUTPUT_DIR, rose_name)
+    fig2.savefig(rose_path, dpi=150)
+    plt.show()
+    plt.close(fig2)
+    print("Saved wind rose plot:", rose_path)
+
     # Brief terminal summary
     print("\n=== Interpolated time series at 10 m and 100 m (inside-box point) ===")
     print(f"Period: {df.index.min()} .. {df.index.max()}")
@@ -195,7 +226,8 @@ def main():
     #  - compute wind speed at a user-specified height z using the power law profile,
     #  - export a single hourly CSV (Excel-friendly separator/encoding, includes z-level in filename if provided),
     #  - fit and export Weibull distribution parameters (k, A) for selected height,
-    #  - plot wind speed distribution (histogram vs. fitted Weibull curve) for the selected height and period.
+    #  - plot wind speed distribution (histogram vs. fitted Weibull curve) for the selected height and period,
+    #  - plot wind rose (polar histogram of wind directions) for the selected height and period.
 
 if __name__ == "__main__":
     main()
