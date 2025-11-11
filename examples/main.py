@@ -14,7 +14,9 @@
 #   (8) plot wind speed distribution (histogram vs. fitted Weibull curve)
 #       for the selected location and height,
 #   (9) plot wind rose (polar histogram of wind directions)
-#       for the selected location and height.
+#       for the selected location and height,
+#   (10) compute AEP for a specified wind turbine (NREL 5 MW or NREL 15 MW)
+#        at a given location and selected year within the provided period.
 #   Direction is meteorological: degrees FROM which the wind blows [0..360).
 # ------------------------------------------------------------
 
@@ -26,6 +28,40 @@ import xarray as xr
 from pathlib import Path
 from scipy.stats import weibull_min
 import matplotlib.pyplot as plt
+
+# --- Load turbine power-curve CSV files ---
+# Used later for AEP calculation of NREL 5 MW and 15 MW turbines.
+TURBINE_DATA_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\turbine_data"
+TURBINES = {
+    "NREL5":  {"hub_m": 90,  "rated_kW": 5000,  "curve_file": "NREL_Reference_5MW_126.csv"},
+    "NREL15": {"hub_m": 150, "rated_kW": 15000, "curve_file": "2020ATB_NREL_Reference_15MW_240.csv"},
+}
+
+# --- Read turbine power curve ---
+# Parse CSV (comma-separated), take only first two columns: wind speed and power.
+def load_power_curve_csv(path: str) -> dict[str, np.ndarray]:
+    df = pd.read_csv(path, sep=",", engine="python", header=0)
+    df = df.iloc[:, :2].dropna()
+    df.columns = ["Wind Speed [m/s]", "Power [kW]"]
+    df = df.sort_values("Wind Speed [m/s]")
+    ws = df["Wind Speed [m/s]"].to_numpy(dtype=float)
+    pw = df["Power [kW]"].to_numpy(dtype=float)
+    # Ensure the curve ends with zero power (cut-out condition)
+    if pw[-1] > 0:
+        ws = np.append(ws, ws[-1] + 0.01)
+        pw = np.append(pw, 0.0)
+    return {"ws": ws, "kW": pw}
+
+# --- Interpolate turbine power output ---
+# Linear interpolation of power [kW] for each wind speed value.
+def power_at_ws(ws_series: pd.Series, curve: dict[str, np.ndarray]) -> pd.Series:
+    p = np.interp(ws_series.to_numpy(), curve["ws"], curve["kW"], left=0.0, right=0.0)
+    return pd.Series(p, index=ws_series.index, name="power_kW")
+
+# --- Extrapolate wind speed using power law ---
+# Compute v(z) = v(z_ref) * (z/z_ref)^alpha for hub-height wind speed estimation.
+def power_law_extrapolate(ws_ref: pd.Series, z_ref: float, z_target: float, alpha: float = 0.14) -> pd.Series:
+    return (ws_ref * (z_target / z_ref) ** alpha).rename(f"ws{int(z_target)}m_ms")
 
 # Absolute path to the directory containing multiple ERA5 NetCDF files
 REANALYSIS_DIR = r"C:\Users\alexe\OneDrive\Documents\Education_DTU\GitHub\Project03_46W38\inputs\reanalysis_data"
@@ -214,6 +250,51 @@ def main():
     fit_summary.to_csv(fit_csv, sep=';', index=False, encoding='utf-8-sig')
     print("Saved Weibull summary:", fit_csv)
 
+    # --- Compute AEP for specified turbine ---
+    # User selects turbine (NREL 5 MW or 15 MW) and calendar year within filtered period.
+    print("\nAEP calculation:")
+    print("Choose turbine: [1] NREL 5 MW (hub 90 m)   [2] NREL 15 MW (hub 150 m)")
+    choice = input("Enter 1 or 2: ").strip()
+
+    turb_key = "NREL5" if choice == "1" else "NREL15"
+    turb = TURBINES[turb_key]
+    hub_h = turb["hub_m"]
+
+    # Load power curve CSV
+    curve_path = os.path.join(TURBINE_DATA_DIR, turb["curve_file"])
+    curve = load_power_curve_csv(curve_path)
+
+    # Ask user for calendar year for AEP within the selected period
+    aep_year = int(input(f"Enter calendar year for AEP within {start_year}-{end_year}: "))
+
+    # Select data for the chosen year
+    year_slice = df.loc[f"{aep_year}-01-01": f"{aep_year}-12-31 23:00:00"]
+
+    # Use 100 m wind speed as reference; extrapolate to hub height
+    ws_ref_year = year_slice["ws100_ms"].dropna()
+    ws_hub = power_law_extrapolate(ws_ref_year, z_ref=100, z_target=hub_h, alpha=0.14)
+
+    # Interpolate turbine power [kW] from power curve and compute AEP [MWh]
+    pw_kW = power_at_ws(ws_hub, curve)
+    AEP_MWh = pw_kW.sum() / 1000.0  # 1 hour = 1 kWh
+
+    # Print summary to terminal
+    print(f"\nComputed AEP for {turb_key} in {aep_year}: {AEP_MWh:.2f} MWh")
+
+    # Export AEP summary
+    aep_summary = pd.DataFrame({
+        "turbine": [turb_key],
+        "year": [aep_year],
+        "AEP_MWh": [AEP_MWh],
+    })
+
+    aep_csv = os.path.join(
+        OUTPUT_DIR,
+        f"aep_{turb_key}_{aep_year}_{LAT:.4f}_{LON:.4f}.csv"
+    )
+    aep_summary.to_csv(aep_csv, sep=";", index=False, encoding="utf-8-sig")
+    print("Saved AEP summary:", aep_csv)
+
     ds.close()
 
 
@@ -227,7 +308,9 @@ def main():
     #  - export a single hourly CSV (Excel-friendly separator/encoding, includes z-level in filename if provided),
     #  - fit and export Weibull distribution parameters (k, A) for selected height,
     #  - plot wind speed distribution (histogram vs. fitted Weibull curve) for the selected height and period,
-    #  - plot wind rose (polar histogram of wind directions) for the selected height and period.
+    #  - plot wind rose (polar histogram of wind directions) for the selected height and period,
+    #  - compute annual energy production (AEP) for a specified NREL 5 MW or 15 MW turbine
+    #    at the given location and selected year within the provided period.
 
 if __name__ == "__main__":
     main()
